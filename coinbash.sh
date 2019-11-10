@@ -92,15 +92,19 @@ MYAPP=jq    # this package is required, a json parser
 MYAPP2=curl # this package is required
 URLPREFIX="https://"
 URLBASE="api.coinmarketcap.com"
+BITSOURLBASE="api.bitso.com"
 URLPOSTFIX="/v1/ticker/"
+BITSOURLPOSTFIX="/v3/ticker/"
 # URLBASEIP="104.17.137.178" # IP address of https://api.coinmarketcap.com from a tool like tor-resolve or http://www.dnsqueries.com/en/dns_lookup.php
 DATAURL=${URLPREFIX}${URLBASE}${URLPOSTFIX}
+BITSODATAURL=${URLPREFIX}${BITSOURLBASE}${BITSOURLPOSTFIX}
 JSONFILE="/tmp/${0##*/}.tmp.json"
+BITSOJSONFILE="/tmp/${0##*/}bitso.tmp.json"
 TORIFYCMD="torify "
 TORIFY="false"
 TOPDEFAULT=10   # default
 TOP=$TOPDEFAULT # init
-FIAT="USD"      # default fiat currency
+FIAT="MXN"      # default fiat currency
 FIATARRAY=(AUD BRL CAD CHF CLP CNY CZK DKK EUR GBP HKD HUF IDR ILS INR JPY KRW MXN MYR NOK NZD PHP PKR PLN RUB SEK SGD THB TRY TWD USD ZAR)
 EUR="false"
 CCSYMBOLSARRAY=()
@@ -212,6 +216,7 @@ function printArgs() {
 function cleanup() {
     rm -f "${JSONFILE}"
     rm -f "${JSONFILE}.part"
+    rm -f "${BITSOJSONFILE}"
     exit "$1"
 }
 
@@ -273,6 +278,28 @@ function printHeader() {
         printf "${bold}%s\t%s\t%s\t%7s\t%4s\t%s\t%s\t%17s${reset}\n" "$rank" "$symbol" "$name" "$price" "$price_btc" "$percent_change_24h" "$percent_change_7d" "$market_cap"
     fi
 }
+
+function printBitsoHeader() {
+    #         "high": "75920.99",
+    #         "last": "75318.29",
+    #         "created_at":
+    #         "2019-03-23T20:32:03+00:00",
+    #         "book": "btc_mxn",
+    #         "volume": "94.00532231",
+    #         "vwap": "75293.07235772",
+    #         "low": "75200.00",
+    #         "ask": "75793.40",
+    #         "bid": "75318.29",
+    #         "change_24": "-545.32"
+
+    book="Book"
+    last="Last"
+    high="High"
+    low="Low"
+    change_24="24h-Change"
+    printf "${bold}%s\t%2s\t%5s\t%5s\t%4s\t%s${reset}\n" "$book" "$last" "$high" "$low" "$change_24"
+}
+
 
 function setSeperator() {
     # The JSON is in UTF8 and uses LC_NUMERIC="en_US.UTF-8".
@@ -367,6 +394,101 @@ function processEntry() {
         printf "%4d\t%s\t%s\t%'7.f\t%.2f\t%+6.1f%%\t%+6.1f%%\t%+6.1f%%\t%'17.f\t%'17.f\t%'17.f\t%'17.f\t%'17.f\n" "$rank" "$symbol" "$name" "$price" "$price_btc" "$percent_change_1h" "$percent_change_24h" "$percent_change_7d" "$a24h_volume" "$available_supply" "$total_supply" "$max_supply" "$market_cap" 2>/dev/null
     else
         printf "%4d\t%s\t%s\t%'7.f\t%.2f\t%+6.1f%%\t%+6.1f%%\t%'17.f\n" "$rank" "$symbol" "$name" "$price" "$price_btc" "$percent_change_24h" "$percent_change_7d" "$market_cap" 2>/dev/null
+    fi
+
+    if [ "$useccsymbolslist" == "true" ]; then
+        if [ $MATCHED -ge ${#CCSYMBOLSARRAY[@]} ]; then
+            return "$ALLMATCHED" # stop scanning, all symbols have been matched
+        fi
+    fi
+    return 1
+}
+
+# $1 ... index of entry to process, starting at 0
+function processBitsoEntry() {
+    book=$(jq ".payload[$1] .book" <"${BITSOJSONFILE}")
+    book="${book%\"}"
+    book="${book#\"}"
+
+    if [ "$useccsymbolslist" == "true" ]; then
+        match="false"
+        for element in "${CCSYMBOLSARRAY[@]}"; do
+            if [ "$element" == "$book" ]; then
+                match="true"
+                ((MATCHED++))
+                break
+            fi
+        done
+        if [ "$match" == "false" ]; then
+            return 0
+        fi
+    fi
+
+    # rank=$(jq ".[$1] .rank" <"${JSONFILE}")
+    # rank="${rank%\"}"
+    # rank="${rank#\"}"
+    # name=$(jq ".[$1] .name" <"${JSONFILE}")
+    # name="${name%\"}"
+    # name="${name#\"}"
+    last=$(jq ".payload[$1] .last" <"${BITSOJSONFILE}")
+    last="${last%\"}"
+    last="${last#\"}"
+    high=$(jq ".payload[$1] .high" <"${BITSOJSONFILE}")
+    high="${high%\"}"
+    high="${high#\"}"
+    low=$(jq ".payload[$1] .low" <"${BITSOJSONFILE}")
+    low="${low%\"}"
+    low="${low#\"}"
+    change_24=$(jq ".payload[$1] .change_24" <"${BITSOJSONFILE}")
+    change_24="${change_24%\"}"
+    change_24="${change_24#\"}"
+
+    # [ $seperator == "," ] && price=${price//./,} # replace all dots
+    # price_btc=$(jq ".[$1] .price_btc" <"${JSONFILE}")
+    # price_btc="${price_btc%\"}"
+    # price_btc="${price_btc#\"}"
+    # [ $seperator == "," ] && price_btc=${price_btc//./,} # replace all dots
+    # percent_change_24h=$(jq ".[$1] .percent_change_24h" <"${JSONFILE}")
+    # percent_change_24h="${percent_change_24h%\"}"
+    # percent_change_24h="${percent_change_24h#\"}"
+    # [ $seperator == "," ] && percent_change_24h=${percent_change_24h//./,} # replace all dots
+    # percent_change_7d=$(jq ".[$1] .percent_change_7d" <"${JSONFILE}")
+    # percent_change_7d="${percent_change_7d%\"}"
+    # percent_change_7d="${percent_change_7d#\"}"
+    # [ $seperator == "," ] && percent_change_7d=${percent_change_7d//./,} # replace all dots
+    # market_cap=$(jq ".[$1] .market_cap_${FIATLC}" <"${JSONFILE}")
+    # market_cap="${market_cap%\"}"
+    # market_cap="${market_cap#\"}"
+    # [ $seperator == "," ] && market_cap=${market_cap//./,} # replace all dots
+    if [ "$VERBOSE" == "true" ]; then
+        jqarg=".[$1] .\"24h_volume_${FIATLC}\"" # because 24h_volume starts with a gigit it must be quoted.
+        a24h_volume=$(jq "${jqarg}" <"${JSONFILE}")
+        a24h_volume="${a24h_volume%\"}"
+        a24h_volume="${a24h_volume#\"}"
+        [ $seperator == "," ] && a24h_volume=${a24h_volume//./,} # replace all dots
+
+        available_supply=$(jq ".[$1] .available_supply" <"${JSONFILE}")
+        available_supply="${available_supply%\"}"
+        available_supply="${available_supply#\"}"
+        [ $seperator == "," ] && available_supply=${available_supply//./,} # replace all dots
+
+        total_supply=$(jq ".[$1] .total_supply" <"${JSONFILE}")
+        total_supply="${total_supply%\"}"
+        total_supply="${total_supply#\"}"
+        [ $seperator == "," ] && total_supply=${total_supply//./,} # replace all dots
+
+        max_supply=$(jq ".[$1] .max_supply" <"${JSONFILE}")
+        max_supply="${max_supply%\"}"
+        max_supply="${max_supply#\"}"
+        [ $seperator == "," ] && max_supply=${max_supply//./,} # replace all dots
+
+        percent_change_1h=$(jq ".[$1] .percent_change_1h" <"${JSONFILE}")
+        percent_change_1h="${percent_change_1h%\"}"
+        percent_change_1h="${percent_change_1h#\"}"
+        [ $seperator == "," ] && percent_change_1h=${percent_change_1h//./,} # replace all dots
+        printf "%4d\t%s\t%s\t%'7.f\t%.2f\t%+6.1f%%\t%+6.1f%%\t%+6.1f%%\t%'17.f\t%'17.f\t%'17.f\t%'17.f\t%'17.f\n" "$rank" "$symbol" "$name" "$price" "$price_btc" "$percent_change_1h" "$percent_change_24h" "$percent_change_7d" "$a24h_volume" "$available_supply" "$total_supply" "$max_supply" "$market_cap" 2>/dev/null
+    else
+        printf "%s\t%'7.f\t%'7.f\t%'7.f\t%+6.1f%%\n" "$book" "$last" "$high" "$low" "$change_24" 2>/dev/null
     fi
 
     if [ "$useccsymbolslist" == "true" ]; then
@@ -589,6 +711,9 @@ function main() {
         LIMIT="&limit=${TOP}"
         [ "$DEBUG" == "true" ] && echo "${0##*/}: DEBUG: $TORIFYCMD curl -s \"${DATAURL}${CONVERT}${LIMIT}\" > \"${JSONFILE}\""
         $TORIFYCMD curl -s "${DATAURL}${CONVERT}${LIMIT}" >"${JSONFILE}"
+        [ "$DEBUG" == "true" ] && echo "${0##*/}: DEBUG: $TORIFYCMD curl -s \"${BITSODATAURL}\" > \"${BITSOJSONFILE}\""
+        $TORIFYCMD curl -s "${BITSODATAURL}" >"${BITSOJSONFILE}"
+
     fi
     setSeperator
     ii=0
@@ -614,6 +739,32 @@ function main() {
             -e "s/\(\+[0-9]*\,[0-9]*%\)/${green}\1${reset}/g" \
             -e "s/\(\-[0-9]*\,[0-9]*%\)/${red}\1${reset}/g"
     echo "Market data source: ${yellow}https://www.coinmarketcap.com${reset} on $(date)"
+
+    setSeperator
+
+    ii=0
+    morelines="true"
+    while [ ${morelines} == "true" ]; do
+        ret=$(jq ".payload[$ii]" <"${BITSOJSONFILE}" )
+        if [ "$ret" == "null" ]; then
+            morelines="false"
+            ii=$((ii - 1))
+        else
+             if [ $ii -eq 0 ]; then
+                 printBitsoHeader
+             fi
+             processBitsoEntry $ii
+             if [ $? -eq $ALLMATCHED ]; then
+                morelines="false"
+             fi
+            ii=$((ii + 1))
+        fi
+    done | column -t -s $'\t' \
+       | sed -e "s/\(\+[0-9]*\.[0-9]*%\)/${green}\1${reset}/g" \
+             -e "s/\(\-[0-9]*\.[0-9]*%\)/${red}\1${reset}/g" \
+             -e "s/\(\+[0-9]*\,[0-9]*%\)/${green}\1${reset}/g" \
+             -e "s/\(\-[0-9]*\,[0-9]*%\)/${red}\1${reset}/g"
+    echo "Market data source: ${yellow}https://bitso.com${reset} on $(date)"
 } # function main
 
 main "$@"
